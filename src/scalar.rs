@@ -239,16 +239,7 @@ fn reduce_sum(sum: [u64; 4], carry: u64) -> [u64; 4] {
 
 #[inline(always)]
 fn ge_limbs(a: [u64; 4], b: [u64; 4]) -> bool {
-    for i in (0..4).rev() {
-        if a[i] > b[i] {
-            return true;
-        }
-        if a[i] < b[i] {
-            return false;
-        }
-    }
-
-    true
+    sub_limbs(a, b).1 == 0
 }
 
 #[inline(always)]

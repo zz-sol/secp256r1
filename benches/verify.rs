@@ -105,7 +105,7 @@ impl OpenSslComparison {
 fn bench_prehashed_preparsed(c: &mut Criterion) {
     let fixture = BenchFixture::new();
     let p256_verifier = P256Comparison::from_sec1_public_key(&fixture.public_key_sec1);
-    let rust_verifier = RustVerifyingKey::from_sec1_public_key(&fixture.public_key_sec1).unwrap();
+    let rust_verifier = RustVerifyingKey::from_sec1_bytes(&fixture.public_key_sec1).unwrap();
     let openssl_verifier = OpenSslComparison::from_sec1_public_key(&fixture.public_key_sec1);
 
     let mut group = c.benchmark_group("secp256r1_verify_prehashed_preparsed");
@@ -123,11 +123,11 @@ fn bench_prehashed_preparsed(c: &mut Criterion) {
         b.iter(|| {
             assert!(
                 rust_verifier
-                    .verify_prehashed_signature(
+                    .verify_prehash(
                         black_box(&fixture.digest),
                         black_box(&fixture.rust_signature)
                     )
-                    .unwrap()
+                    .is_ok()
             );
         });
     });
@@ -147,7 +147,7 @@ fn bench_prehashed_preparsed(c: &mut Criterion) {
 fn bench_prehashed_der(c: &mut Criterion) {
     let fixture = BenchFixture::new();
     let p256_verifier = P256Comparison::from_sec1_public_key(&fixture.public_key_sec1);
-    let rust_verifier = RustVerifyingKey::from_sec1_public_key(&fixture.public_key_sec1).unwrap();
+    let rust_verifier = RustVerifyingKey::from_sec1_bytes(&fixture.public_key_sec1).unwrap();
     let openssl_verifier = OpenSslComparison::from_sec1_public_key(&fixture.public_key_sec1);
 
     let mut group = c.benchmark_group("secp256r1_verify_prehashed_der");
@@ -169,7 +169,7 @@ fn bench_prehashed_der(c: &mut Criterion) {
                         black_box(&fixture.digest),
                         black_box(&fixture.signature_der)
                     )
-                    .unwrap()
+                    .is_ok()
             );
         });
     });
@@ -189,7 +189,7 @@ fn bench_prehashed_der(c: &mut Criterion) {
 fn bench_message_sha256_preparsed(c: &mut Criterion) {
     let fixture = BenchFixture::new();
     let p256_verifier = P256Comparison::from_sec1_public_key(&fixture.public_key_sec1);
-    let rust_verifier = RustVerifyingKey::from_sec1_public_key(&fixture.public_key_sec1).unwrap();
+    let rust_verifier = RustVerifyingKey::from_sec1_bytes(&fixture.public_key_sec1).unwrap();
     let openssl_verifier = OpenSslComparison::from_sec1_public_key(&fixture.public_key_sec1);
 
     let mut group = c.benchmark_group("secp256r1_verify_message_sha256_preparsed");
@@ -209,11 +209,8 @@ fn bench_message_sha256_preparsed(c: &mut Criterion) {
             let digest = sha256(black_box(fixture.message));
             assert!(
                 rust_verifier
-                    .verify_prehashed_signature(
-                        black_box(&digest),
-                        black_box(&fixture.rust_signature)
-                    )
-                    .unwrap()
+                    .verify_prehash(black_box(&digest), black_box(&fixture.rust_signature))
+                    .is_ok()
             );
         });
     });
@@ -234,7 +231,7 @@ fn bench_message_sha256_preparsed(c: &mut Criterion) {
 fn bench_message_sha256_der(c: &mut Criterion) {
     let fixture = BenchFixture::new();
     let p256_verifier = P256Comparison::from_sec1_public_key(&fixture.public_key_sec1);
-    let rust_verifier = RustVerifyingKey::from_sec1_public_key(&fixture.public_key_sec1).unwrap();
+    let rust_verifier = RustVerifyingKey::from_sec1_bytes(&fixture.public_key_sec1).unwrap();
     let openssl_verifier = OpenSslComparison::from_sec1_public_key(&fixture.public_key_sec1);
 
     let mut group = c.benchmark_group("secp256r1_verify_message_sha256_der");
@@ -255,7 +252,7 @@ fn bench_message_sha256_der(c: &mut Criterion) {
             assert!(
                 rust_verifier
                     .verify_prehashed_der(black_box(&digest), black_box(&fixture.signature_der))
-                    .unwrap()
+                    .is_ok()
             );
         });
     });

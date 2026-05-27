@@ -88,19 +88,14 @@ impl Signature {
         let mut out = [0u8; 72];
         let r = self.r.to_be_bytes();
         let s = self.s.to_be_bytes();
-        let r_len = encode_der_integer(&mut out[4..], r);
-        let s_header = 4 + r_len;
-        out[2] = 0x02;
-        out[3] = r_len as u8;
-        out[s_header] = 0x02;
-        let s_len = encode_der_integer(&mut out[s_header + 2..], s);
-        out[s_header + 1] = s_len as u8;
+        let r_len = write_der_integer(&mut out[2..], r);
+        let s_len = write_der_integer(&mut out[2 + r_len..], s);
         out[0] = 0x30;
-        out[1] = (2 + r_len + 2 + s_len) as u8;
+        out[1] = (r_len + s_len) as u8;
 
         DerSignature {
             bytes: out,
-            len: 2 + 2 + r_len + 2 + s_len,
+            len: 2 + r_len + s_len,
         }
     }
 
@@ -305,11 +300,6 @@ pub struct VerifyingKey {
 impl VerifyingKey {
     /// Builds a verifying key from compressed or uncompressed SEC1 public key bytes.
     pub fn from_sec1_bytes(public_key_sec1: &[u8]) -> Result<Self> {
-        Self::from_sec1_public_key(public_key_sec1)
-    }
-
-    /// Builds a verifying key from compressed or uncompressed SEC1 public key bytes.
-    pub fn from_sec1_public_key(public_key_sec1: &[u8]) -> Result<Self> {
         let public_key = match public_key_sec1.len() {
             UNCOMPRESSED_SEC1_PUBLIC_KEY_LEN => {
                 let bytes = public_key_sec1
@@ -365,7 +355,8 @@ impl VerifyingKey {
 
     /// Verifies an ECDSA signature over a 32-byte message digest.
     pub fn verify_prehash(&self, digest: &[u8], signature: &Signature) -> Result<()> {
-        if self.verify_prehashed_signature(digest, signature)? {
+        let digest = digest_32(digest)?;
+        if self.verify_digest_signature(digest, signature) {
             Ok(())
         } else {
             Err(Error::InvalidSignature)
@@ -373,19 +364,12 @@ impl VerifyingKey {
     }
 
     /// Verifies a DER-encoded ECDSA signature over a 32-byte message digest.
-    pub fn verify_prehashed_der(&self, digest: &[u8], signature_der: &[u8]) -> Result<bool> {
+    pub fn verify_prehashed_der(&self, digest: &[u8], signature_der: &[u8]) -> Result<()> {
         let signature = Signature::from_der(signature_der)?;
-        self.verify_prehashed_signature(digest, &signature)
+        self.verify_prehash(digest, &signature)
     }
 
-    /// Verifies a parsed ECDSA signature over a 32-byte message digest.
-    pub fn verify_prehashed_signature(&self, digest: &[u8], signature: &Signature) -> Result<bool> {
-        let digest = digest_32(digest)?;
-        Ok(self.verify_digest_signature(digest, signature))
-    }
-
-    /// Verifies a parsed ECDSA signature over a 32-byte message digest.
-    pub fn verify_digest_signature(&self, digest: [u8; DIGEST_LEN], signature: &Signature) -> bool {
+    fn verify_digest_signature(&self, digest: [u8; DIGEST_LEN], signature: &Signature) -> bool {
         let z = Scalar::from_be_bytes_reduced(digest);
         let Some(w) = signature.s.invert() else {
             return false;
@@ -412,20 +396,23 @@ fn scalar_from_x_coordinate(point: AffinePoint) -> Scalar {
     Scalar::from_be_bytes_reduced(x.to_be_bytes())
 }
 
-fn encode_der_integer(out: &mut [u8], bytes: [u8; DIGEST_LEN]) -> usize {
+fn write_der_integer(out: &mut [u8], bytes: [u8; DIGEST_LEN]) -> usize {
     let first_nonzero = bytes
         .iter()
         .position(|byte| *byte != 0)
         .unwrap_or(DIGEST_LEN - 1);
     let integer = &bytes[first_nonzero..];
 
+    out[0] = 0x02;
     if integer[0] & 0x80 != 0 {
-        out[0] = 0;
-        out[1..=integer.len()].copy_from_slice(integer);
-        integer.len() + 1
+        out[1] = (integer.len() + 1) as u8;
+        out[2] = 0;
+        out[3..3 + integer.len()].copy_from_slice(integer);
+        3 + integer.len()
     } else {
-        out[..integer.len()].copy_from_slice(integer);
-        integer.len()
+        out[1] = integer.len() as u8;
+        out[2..2 + integer.len()].copy_from_slice(integer);
+        2 + integer.len()
     }
 }
 

@@ -280,10 +280,10 @@ impl ProjectivePoint {
         let u2 = rhs.x * z1z1;
         let s2 = rhs.y * self.z * z1z1;
         let h = u2 - self.x;
-        let r = double(s2 - self.y);
+        let slope_num = double(s2 - self.y);
 
         if h.is_zero() {
-            return if r.is_zero() {
+            return if slope_num.is_zero() {
                 self.double()
             } else {
                 Self::IDENTITY
@@ -294,8 +294,8 @@ impl ProjectivePoint {
         let i = double(double(hh));
         let j = h * i;
         let v = self.x * i;
-        let x = r.square() - j - double(v);
-        let y = r * (v - x) - double(self.y * j);
+        let x = slope_num.square() - j - double(v);
+        let y = slope_num * (v - x) - double(self.y * j);
         let z = (self.z + h).square() - z1z1 - hh;
 
         Self { x, y, z }
@@ -332,6 +332,27 @@ impl ProjectivePoint {
             out = double_n(out, 4)
                 .add_mixed(generator_table[(generator_byte & 0x0f) as usize])
                 .add_mixed(point_table[(point_byte & 0x0f) as usize]);
+        }
+
+        generator_scalar.zeroize();
+        point_scalar.zeroize();
+        out
+    }
+
+    #[inline]
+    pub fn double_scalar_mul_shamir_window8_vartime(
+        mut generator_scalar: [u8; 32],
+        point: AffinePoint,
+        mut point_scalar: [u8; 32],
+    ) -> Self {
+        let generator_table = generator_shamir_window8_table();
+        let point_table = projective_window8_table(ProjectivePoint::from_affine(point));
+        let mut out = Self::IDENTITY;
+
+        for (&generator_byte, &point_byte) in generator_scalar.iter().zip(point_scalar.iter()) {
+            out = double_n(out, 8)
+                .add_mixed(generator_table[generator_byte as usize])
+                .add_mixed(point_table[point_byte as usize]);
         }
 
         generator_scalar.zeroize();
@@ -406,10 +427,10 @@ impl Add for ProjectivePoint {
         let h = u2 - u1;
         let i = double(h).square();
         let j = h * i;
-        let r = double(s2 - s1);
+        let slope_num = double(s2 - s1);
         let v = u1 * i;
-        let x = r.square() - j - double(v);
-        let y = r * (v - x) - double(s1 * j);
+        let x = slope_num.square() - j - double(v);
+        let y = slope_num * (v - x) - double(s1 * j);
         let z = ((self.z + rhs.z).square() - z1z1 - z2z2) * h;
 
         Self { x, y, z }
@@ -461,6 +482,12 @@ fn generator_window4_table() -> &'static [AffinePoint; SHAMIR_WINDOW_POINTS] {
     static TABLE: OnceLock<[AffinePoint; SHAMIR_WINDOW_POINTS]> = OnceLock::new();
 
     TABLE.get_or_init(|| window4_table(AffinePoint::GENERATOR))
+}
+
+fn generator_shamir_window8_table() -> &'static [AffinePoint; BASE_WINDOW_POINTS] {
+    static TABLE: OnceLock<[AffinePoint; BASE_WINDOW_POINTS]> = OnceLock::new();
+
+    TABLE.get_or_init(|| projective_window8_table(ProjectivePoint::GENERATOR))
 }
 
 fn window4_table(base: AffinePoint) -> [AffinePoint; SHAMIR_WINDOW_POINTS] {
@@ -676,16 +703,7 @@ fn build_window8_table(
     let mut rows = Vec::with_capacity(BASE_WINDOWS);
 
     for _ in 0..BASE_WINDOWS {
-        let mut window = [AffinePoint::IDENTITY; BASE_WINDOW_POINTS];
-        let affine_base = base.to_affine();
-        let mut multiple = ProjectivePoint::IDENTITY;
-
-        for entry in window.iter_mut().skip(1) {
-            multiple = multiple.add_mixed(affine_base);
-            *entry = multiple.to_affine();
-        }
-
-        rows.push(window);
+        rows.push(projective_window8_table(base));
 
         for _ in 0..8 {
             base = base.double();
@@ -695,6 +713,18 @@ fn build_window8_table(
     rows.into_boxed_slice()
         .try_into()
         .expect("fixed-point table has the expected number of rows")
+}
+
+fn projective_window8_table(base: ProjectivePoint) -> [AffinePoint; BASE_WINDOW_POINTS] {
+    let mut projective = [ProjectivePoint::IDENTITY; BASE_WINDOW_POINTS];
+    let mut multiple = ProjectivePoint::IDENTITY;
+
+    for entry in projective.iter_mut().skip(1) {
+        multiple = multiple + base;
+        *entry = multiple;
+    }
+
+    batch_normalize(projective)
 }
 
 #[inline]

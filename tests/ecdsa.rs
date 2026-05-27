@@ -11,10 +11,18 @@ use p256::ecdsa::{
     Signature as P256Signature, SigningKey, VerifyingKey, signature::Signer as _,
     signature::Verifier as _, signature::hazmat::PrehashVerifier,
 };
-use secp256r1::{Signature, SigningKey as RustSigningKey, VerifyingKey as RustVerifyingKey};
+use secp256r1::{
+    Error, Signature, SigningKey as RustSigningKey, VerifyingKey as RustVerifyingKey,
+    group::{AffinePoint, ProjectivePoint},
+    scalar::Scalar,
+};
 use sha2::{Digest as _, Sha256};
 
 const MESSAGE: &[u8] = b"secp256r1 verification benchmark message";
+const ORDER: [u8; 32] = [
+    0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63, 0x25, 0x51,
+];
 
 fn fixture() -> (Vec<u8>, Vec<u8>) {
     let secret = [7u8; 32];
@@ -90,6 +98,22 @@ fn small_signature_der() -> Vec<u8> {
         .to_vec()
 }
 
+fn order_plus_u32(value: u32) -> ([u8; 32], [u8; 32]) {
+    let mut scalar = [0u8; 32];
+    scalar[28..32].copy_from_slice(&value.to_be_bytes());
+
+    let mut x = ORDER;
+    let mut carry = value as u64;
+    for byte in x.iter_mut().rev() {
+        let sum = *byte as u64 + (carry & 0xff);
+        *byte = sum as u8;
+        carry = (carry >> 8) + (sum >> 8);
+    }
+
+    assert_eq!(carry, 0);
+    (scalar, x)
+}
+
 #[test]
 fn p256_verifies_der_signature() {
     let (public_key, signature_der) = fixture();
@@ -117,13 +141,13 @@ fn openssl_verifies_der_signature() {
 #[test]
 fn verifying_key_verifies_der_signature() {
     let (public_key, signature) = fixture();
-    let verifying_key = RustVerifyingKey::from_sec1_public_key(&public_key).unwrap();
+    let verifying_key = RustVerifyingKey::from_sec1_bytes(&public_key).unwrap();
     let digest = Sha256::digest(MESSAGE);
 
     assert!(
         verifying_key
             .verify_prehashed_der(&digest, &signature)
-            .unwrap()
+            .is_ok()
     );
 }
 
@@ -131,10 +155,10 @@ fn verifying_key_verifies_der_signature() {
 fn top_level_verifying_key_verifies_preparsed_signature() {
     let (public_key, signature_der) = fixture();
     let signature = Signature::from_der(&signature_der).unwrap();
-    let verifying_key = RustVerifyingKey::from_sec1_public_key(&public_key).unwrap();
-    let digest: [u8; 32] = Sha256::digest(MESSAGE).into();
+    let verifying_key = RustVerifyingKey::from_sec1_bytes(&public_key).unwrap();
+    let digest = Sha256::digest(MESSAGE);
 
-    assert!(verifying_key.verify_digest_signature(digest, &signature));
+    assert!(verifying_key.verify_prehash(&digest, &signature).is_ok());
 }
 
 #[test]
@@ -288,6 +312,81 @@ fn strict_der_rejects_negative_integer_encoding() {
 }
 
 #[test]
+fn strict_der_rejects_oversized_integer() {
+    let mut encoded = vec![0x30, 0x26, 0x02, 0x21, 0x01];
+    encoded.extend_from_slice(&[0u8; 32]);
+    encoded.extend_from_slice(&[0x02, 0x01, 0x01]);
+
+    assert!(Signature::from_der(&encoded).is_err());
+}
+
+#[test]
+fn strict_der_rejects_wrong_integer_tag_order() {
+    let encoded = [0x30, 0x06, 0x02, 0x01, 0x01, 0x03, 0x01, 0x02];
+
+    assert!(Signature::from_der(&encoded).is_err());
+}
+
+#[test]
+fn strict_der_rejects_trailing_sequence_data() {
+    let encoded = [0x30, 0x07, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02, 0x00];
+
+    assert!(Signature::from_der(&encoded).is_err());
+}
+
+#[test]
+fn strict_der_rejects_outer_trailing_data() {
+    let mut encoded = small_signature_der();
+    encoded.push(0);
+
+    assert!(Signature::from_der(&encoded).is_err());
+}
+
+#[test]
+fn invalid_signature_returns_invalid_signature_error() {
+    let signing_key = RustSigningKey::from_slice(&[7u8; 32]).unwrap();
+    let digest = Sha256::digest(MESSAGE);
+    let mut signature_bytes = signing_key.sign_prehash(&digest).unwrap().to_bytes();
+    signature_bytes[63] ^= 1;
+    let signature = Signature::from_slice(&signature_bytes).unwrap();
+    let signature_der = signature.to_der();
+    let verifying_key = signing_key.verifying_key();
+
+    assert!(matches!(
+        verifying_key.verify_prehash(&digest, &signature),
+        Err(Error::InvalidSignature)
+    ));
+    assert!(matches!(
+        verifying_key.verify_prehashed_der(&digest, signature_der.as_bytes()),
+        Err(Error::InvalidSignature)
+    ));
+}
+
+#[test]
+fn verification_accepts_signature_when_x_coordinate_exceeds_order() {
+    let (r, point) = (1u32..=1024)
+        .find_map(|candidate| {
+            let (r, x) = order_plus_u32(candidate);
+            let mut compressed = [0u8; 33];
+            compressed[0] = 0x02;
+            compressed[1..].copy_from_slice(&x);
+            AffinePoint::from_sec1_compressed(compressed).map(|point| (r, point))
+        })
+        .expect("test range contains a curve point with x >= n");
+    let r_inverse = Scalar::from_be_bytes(r).unwrap().invert().unwrap();
+    let public_key = ProjectivePoint::mul_affine_scalar_vartime(point, r_inverse.to_be_bytes())
+        .to_affine()
+        .to_sec1_uncompressed()
+        .unwrap();
+    let verifying_key = RustVerifyingKey::from_sec1_bytes(&public_key).unwrap();
+    let mut s = [0u8; 32];
+    s[31] = 1;
+    let signature = Signature::from_scalars(r, s).unwrap();
+
+    assert!(verifying_key.verify_prehash(&[0u8; 32], &signature).is_ok());
+}
+
+#[test]
 fn openssl_verifies_signature_der() {
     let secret = [7u8; 32];
     let signing_key = RustSigningKey::from_slice(&secret).unwrap();
@@ -398,7 +497,7 @@ fn randomized_openssl_prehash_signatures_verify_with_rust_and_p256() {
         assert!(
             verifying_key
                 .verify_prehashed_der(&digest, &signature_der)
-                .unwrap(),
+                .is_ok(),
             "we rejected OpenSSL signature for seed {seed}"
         );
 

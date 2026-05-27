@@ -40,11 +40,6 @@ impl FieldElement {
     };
 
     #[inline]
-    pub fn one() -> Self {
-        Self::ONE
-    }
-
-    #[inline]
     pub fn from_u64(value: u64) -> Self {
         Self::from_canonical_limbs([value, 0, 0, 0]).expect("u64 is canonical")
     }
@@ -88,7 +83,7 @@ impl FieldElement {
 
     #[inline]
     fn pow(self, exponent: [u8; 32]) -> Self {
-        let mut out = Self::one();
+        let mut out = Self::ONE;
 
         for byte in exponent {
             for bit in (0..8).rev() {
@@ -217,16 +212,7 @@ fn reduce_sum(sum: [u64; 4], carry: u64) -> [u64; 4] {
 
 #[inline(always)]
 fn ge_limbs(a: [u64; 4], b: [u64; 4]) -> bool {
-    for i in (0..4).rev() {
-        if a[i] > b[i] {
-            return true;
-        }
-        if a[i] < b[i] {
-            return false;
-        }
-    }
-
-    true
+    sub_limbs(a, b).1 == 0
 }
 
 #[inline(always)]
@@ -328,10 +314,10 @@ fn montgomery_square(a: [u64; 4]) -> [u64; 4] {
     acc |= (top as u128) << 64;
     let (sum, overflow) = acc.overflowing_add(a3 * a3);
     let w6 = sum as u64;
-    let low = (sum >> 64) as u64;
+    let w7 = (sum >> 64) as u64;
     debug_assert!(!overflow);
 
-    montgomery_reduce_words(w0, w1, w2, w3, w4, w5, w6, low)
+    montgomery_reduce_words(w0, w1, w2, w3, w4, w5, w6, w7)
 }
 
 #[inline(always)]
@@ -546,7 +532,7 @@ mod tests {
         let p256 = p256_field(P_MINUS_ONE);
         let mut one_bytes = [0u8; 32];
         one_bytes[31] = 1;
-        let rust_one = FieldElement::one();
+        let rust_one = FieldElement::ONE;
         let p256_one = p256_field(one_bytes);
 
         assert_matches_p256(rust + rust, p256 + p256, "p_minus_one add");
