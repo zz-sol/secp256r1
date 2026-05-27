@@ -161,15 +161,28 @@ Representative local results from this workspace:
 
 | Benchmark | rust | p256 | OpenSSL |
 |---|---:|---:|---:|
-| prehashed, preparsed sig | 35.55 us | 149.34 us | 30.61 us |
+| prehashed, parsed sig | 35.842 us | 154.61 us | 30.896 us |
+| prehashed, DER sig | 36.149 us | 153.55 us | 31.326 us |
+| message SHA-256, parsed sig | 36.450 us | 154.69 us | 31.344 us |
+| message SHA-256, DER sig | 36.622 us | 155.57 us | 31.842 us |
 
 ### Sign
 
 | Benchmark | rust | p256 | OpenSSL |
 |---|---:|---:|---:|
-| keygen | 7.98 us | 75.06 us | 4.66 us |
-| sign prehashed | 12.12 us | 91.26 us | 10.12 us |
-| sign message SHA-256 | 12.34 us | 92.32 us | 10.36 us |
+| keygen | 8.423 us | 78.101 us | 4.762 us |
+| sign prehashed | 12.674 us | 94.367 us | 10.476 us |
+| sign message SHA-256 | 12.869 us | 94.662 us | 10.753 us |
+
+### Group Ops
+
+| Benchmark | rust | p256 | OpenSSL |
+|---|---:|---:|---:|
+| point double | 89.851 ns | 210.85 ns | 57.582 ns nistz |
+| point add | 141.95 ns | 229.71 ns | 99.978 ns nistz |
+| mixed add | 101.93 ns | 205.46 ns | 75.010 ns nistz |
+| base scalar mul | 3.236 us fixed-base window8 | 76.277 us | 3.543 us |
+| double scalar mul | 32.682 us separate wNAF6 | 151.99 us | 25.704 us |
 
 Benchmark numbers are machine- and compiler-dependent. Re-run locally before
 making performance decisions.
