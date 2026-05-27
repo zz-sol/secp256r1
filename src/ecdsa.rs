@@ -15,7 +15,12 @@ use zeroize::Zeroize;
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// ECDSA signature representation.
+/// An ECDSA signature over the P-256 curve.
+///
+/// A signature consists of two scalars, `r` and `s`, each in `[1, n-1]`
+/// where `n` is the group order. Use [`from_der`][Self::from_der] or
+/// [`from_slice`][Self::from_slice] to parse, and [`to_der`][Self::to_der]
+/// or [`to_bytes`][Self::to_bytes] to serialize.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Signature {
     r: Scalar,
@@ -23,7 +28,10 @@ pub struct Signature {
 }
 
 impl Signature {
-    /// Builds a signature from canonical 32-byte ECDSA `r` and `s` scalars.
+    /// Builds a signature from canonical big-endian 32-byte `r` and `s` scalars.
+    ///
+    /// Returns an error if either scalar is zero or not in canonical form
+    /// (i.e. ≥ the group order `n`).
     pub fn from_scalars(r: [u8; DIGEST_LEN], s: [u8; DIGEST_LEN]) -> Result<Self> {
         let r = Scalar::from_be_bytes(r)
             .filter(|r| !r.is_zero())
@@ -36,6 +44,9 @@ impl Signature {
     }
 
     /// Parses a DER-encoded ECDSA signature.
+    ///
+    /// Enforces strict/minimal DER: no trailing bytes, no leading zero bytes
+    /// in integers beyond the required sign byte, no negative integers.
     pub fn from_der(signature_der: &[u8]) -> Result<Self> {
         let mut parser = DerParser::new(signature_der);
         parser.expect_byte(0x30)?;
@@ -112,7 +123,10 @@ impl Signature {
     }
 }
 
-/// DER-encoded ECDSA signature bytes.
+/// A DER-encoded ECDSA signature, at most 72 bytes.
+///
+/// Produced by [`Signature::to_der`]. Use [`as_bytes`][Self::as_bytes] to
+/// obtain the encoded bytes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DerSignature {
     bytes: [u8; 72],
@@ -132,7 +146,10 @@ impl AsRef<[u8]> for DerSignature {
     }
 }
 
-/// SEC1-encoded public key bytes.
+/// A SEC1-encoded public key, either compressed (33 bytes) or uncompressed (65 bytes).
+///
+/// Produced by [`VerifyingKey::to_encoded_point`]. Use
+/// [`as_bytes`][Self::as_bytes] to obtain the encoded bytes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EncodedPoint {
     bytes: [u8; UNCOMPRESSED_SEC1_PUBLIC_KEY_LEN],
@@ -228,7 +245,10 @@ impl SigningKey {
         &self.verifying_key
     }
 
-    /// Returns this signing key as a 32-byte scalar.
+    /// Returns this signing key as a canonical big-endian 32-byte scalar.
+    ///
+    /// The caller is responsible for clearing the returned bytes when they are
+    /// no longer needed.
     pub fn to_bytes(&self) -> [u8; DIGEST_LEN] {
         self.secret.to_be_bytes()
     }
@@ -320,7 +340,11 @@ impl VerifyingKey {
         Ok(Self { public_key })
     }
 
-    /// Returns this public key as an SEC1 encoded point.
+    /// Returns this public key as a SEC1-encoded point.
+    ///
+    /// Pass `compress = false` for the uncompressed 65-byte `0x04 || X || Y`
+    /// encoding, or `compress = true` for the compressed 33-byte
+    /// `0x02/0x03 || X` encoding.
     pub fn to_encoded_point(&self, compress: bool) -> EncodedPoint {
         let uncompressed = self
             .public_key

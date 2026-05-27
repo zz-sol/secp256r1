@@ -1,3 +1,16 @@
+//! P-256 elliptic curve group operations.
+//!
+//! Points are represented in two forms:
+//!
+//! - [`AffinePoint`] — standard `(x, y)` coordinates, used for storage and
+//!   table entries. Includes an `infinity` flag for the identity element.
+//! - [`ProjectivePoint`] — Jacobian `(X : Y : Z)` coordinates, used during
+//!   multi-step scalar multiplication to avoid per-step field inversions.
+//!
+//! Use [`ProjectivePoint::to_affine`] to convert back and pay the single
+//! field inversion, or [`batch_normalize`][`ProjectivePoint`] implicitly via
+//! the precomputed table builders.
+
 use core::ops::{Add, Neg, Sub};
 use std::sync::OnceLock;
 

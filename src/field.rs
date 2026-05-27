@@ -1,3 +1,12 @@
+//! P-256 base field arithmetic.
+//!
+//! [`FieldElement`] represents an element of GF(p) where
+//! `p = 2^256 - 2^224 + 2^192 + 2^96 - 1` (the P-256 field prime).
+//! Internally elements are stored in Montgomery form; use
+//! [`from_be_bytes`][FieldElement::from_be_bytes] and
+//! [`to_be_bytes`][FieldElement::to_be_bytes] to convert from/to canonical
+//! big-endian representation.
+
 use core::ops::{Add, Mul, Neg, Sub};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

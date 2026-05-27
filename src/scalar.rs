@@ -1,3 +1,12 @@
+//! P-256 scalar field arithmetic.
+//!
+//! [`Scalar`] represents an element of GF(n) where
+//! `n = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551`
+//! is the P-256 group order. Internally scalars are stored in Montgomery
+//! form; use [`from_be_bytes`][Scalar::from_be_bytes] and
+//! [`to_be_bytes`][Scalar::to_be_bytes] to convert from/to canonical
+//! big-endian representation.
+
 use core::ops::{Add, Mul, Neg, Sub};
 use zeroize::Zeroize;
 
